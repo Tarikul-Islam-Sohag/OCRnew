@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Text Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #333333; /* Dark gray background from reference */
+        }
+        .macos-window {
+            background-color: #F5F5F7; /* Main window background */
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+        .sidebar {
+            background-color: #EAEAEA; /* Sidebar background */
+            transition: background-color 0.2s ease-in-out;
+        }
+        .btn-primary {
+            background-color: #007AFF;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #0062CC;
+        }
+        .btn-secondary {
+            background-color: #DCDCDC;
+            color: #333333;
+        }
+        .btn-secondary:hover {
+            background-color: #C8C8C8;
+        }
+        .btn-mac {
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-mac:hover {
+            transform: translateY(-1px);
+        }
+        #preview-container img, #preview-container canvas,
+        #preview-container-mobile img, #preview-container-mobile canvas {
+             max-height: 200px;
+             width: auto;
+             margin: 0 auto;
+             border-radius: 0.5rem;
+             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .history-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        #output {
+            background-color: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+        }
+        /* Drag and Drop Styles */
+        .drag-over {
+            background-color: #D1D5DB !important; /* gray-300 */
+            border: 2px dashed #007AFF;
+        }
+        /* Button Animation */
+        @keyframes slideUpFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .btn-animated {
+            animation: slideUpFadeIn 0.4s ease-out forwards;
+            opacity: 0; /* Start hidden */
+        }
+        /* New Spinner Animation */
+        .spinner {
+            position: relative;
+            width: 28px;
+            height: 28px;
+        }
+        .spinner div {
+            position: absolute;
+            left: 48%;
+            top: 40%;
+            width: 5%;
+            height: 20%;
+            background-color: #007AFF;
+            border-radius: 50px;
+            animation: spinner-fade 1s linear infinite;
+        }
+        @keyframes spinner-fade {
+            0% { opacity: 1; }
+            100% { opacity: 0.15; }
+        }
+        .spinner div:nth-child(1) { transform: rotate(0deg) translateY(-150%); }
+        .spinner div:nth-child(2) { transform: rotate(30deg) translateY(-150%); animation-delay: -0.9167s; }
+        .spinner div:nth-child(3) { transform: rotate(60deg) translateY(-150%); animation-delay: -0.8333s; }
+        .spinner div:nth-child(4) { transform: rotate(90deg) translateY(-150%); animation-delay: -0.75s; }
+        .spinner div:nth-child(5) { transform: rotate(120deg) translateY(-150%); animation-delay: -0.6667s; }
+        .spinner div:nth-child(6) { transform: rotate(150deg) translateY(-150%); animation-delay: -0.5833s; }
+        .spinner div:nth-child(7) { transform: rotate(180deg) translateY(-150%); animation-delay: -0.5s; }
+        .spinner div:nth-child(8) { transform: rotate(210deg) translateY(-150%); animation-delay: -0.4167s; }
+        .spinner div:nth-child(9) { transform: rotate(240deg) translateY(-150%); animation-delay: -0.3333s; }
+        .spinner div:nth-child(10) { transform: rotate(270deg) translateY(-150%); animation-delay: -0.25s; }
+        .spinner div:nth-child(11) { transform: rotate(300deg) translateY(-150%); animation-delay: -0.1667s; }
+        .spinner div:nth-child(12) { transform: rotate(330deg) translateY(-150%); animation-delay: -0.0833s; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+    </script>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-7xl macos-window rounded-2xl flex overflow-hidden">
+        <!-- Sidebar -->
+        <div id="drop-zone-desktop" class="w-1/3 lg:w-1/4 sidebar p-6 space-y-6 hidden md:flex flex-col">
+            <h1 class="text-2xl font-semibold text-black">OCR AI</h1>
+             <div id="preview-container" class="w-full bg-white/50 p-2 rounded-xl flex-grow flex justify-center items-center pointer-events-none">
+                <p class="text-gray-600 text-center text-sm">Your file preview will appear here</p>
+             </div>
+             <div class="space-y-3">
+                <label for="file-upload" class="file-input-label cursor-pointer btn-primary text-white font-semibold py-3 px-4 rounded-lg w-full text-center block btn-mac">
+                    Select File
+                </label>
+                <input type="file" id="file-upload" class="hidden" accept="image/*,application/pdf">
+                <button id="extract-btn" class="bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors w-full btn-mac" disabled>
+                    Extract Text
+                </button>
+                <div id="file-info" class="text-center text-sm text-gray-600 pt-1"></div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="w-full md:w-2/3 lg:w-3/4 p-6 md:p-8 space-y-4 flex flex-col">
+             <!-- Header for mobile -->
+            <div class="text-center pb-4 border-b border-gray-300/60 md:hidden">
+                <h1 class="text-2xl font-semibold text-black">OCR AI</h1>
+            </div>
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-semibold text-black">Extracted Text</h2>
+                <div class="flex items-center space-x-2">
+                    <!-- Undo/Redo Buttons -->
+                    <button id="undo-btn" class="history-btn p-1 rounded-md text-gray-600 hover:bg-gray-300" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+                    </button>
+                     <button id="redo-btn" class="history-btn p-1 rounded-md text-gray-600 hover:bg-gray-300" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="output-section" class="bg-white p-1 rounded-xl border border-gray-300/80 flex-grow min-h-[400px]">
+                 <textarea id="output" class="w-full h-full p-3 rounded-lg overflow-y-auto whitespace-pre-wrap text-black"></textarea>
+            </div>
+             <!-- Mobile-only upload buttons -->
+            <div id="drop-zone-mobile" class="space-y-3 md:hidden">
+                 <div id="preview-container-mobile" class="w-full bg-white/50 p-2 rounded-xl flex justify-center items-center min-h-[150px] pointer-events-none">
+                    <p class="text-gray-600 text-center text-sm">Your file preview will appear here</p>
+                 </div>
+                <label for="file-upload-mobile" class="file-input-label cursor-pointer btn-primary text-white font-semibold py-3 px-4 rounded-lg w-full text-center block btn-mac">
+                    Select File
+                </label>
+                <input type="file" id="file-upload-mobile" class="hidden" accept="image/*,application/pdf">
+                <button id="extract-btn-mobile" class="bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors w-full btn-mac" disabled>
+                    Extract Text
+                </button>
+            </div>
+            <div id="format-actions" class="grid grid-cols-2 lg:grid-cols-3 gap-2 pt-2">
+                <!-- Action buttons will be dynamically added here -->
+            </div>
+            <div class="h-8 flex items-center justify-center">
+                <div id="processing-animation" class="hidden">
+                    <div class="spinner">
+                        <div></div><div></div><div></div><div></div><div></div><div></div>
+                        <div></div><div></div><div></div><div></div><div></div><div></div>
+                    </div>
+                </div>
+                <div id="error-message" class="hidden text-red-600 bg-red-100 p-3 rounded-lg text-center text-sm w-full"></div>
+                <div id="copy-feedback" class="text-green-600 text-sm text-center h-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Element Selectors
+        const fileUpload = document.getElementById('file-upload');
+        const fileUploadMobile = document.getElementById('file-upload-mobile');
+        const fileInfo = document.getElementById('file-info');
+        const previewContainer = document.getElementById('preview-container');
+        const previewContainerMobile = document.getElementById('preview-container-mobile');
+        const extractBtn = document.getElementById('extract-btn');
+        const extractBtnMobile = document.getElementById('extract-btn-mobile');
+        const processingAnimation = document.getElementById('processing-animation');
+        const errorMessage = document.getElementById('error-message');
+        const output = document.getElementById('output');
+        const copyFeedback = document.getElementById('copy-feedback');
+        const formatActions = document.getElementById('format-actions');
+        const undoBtn = document.getElementById('undo-btn');
+        const redoBtn = document.getElementById('redo-btn');
+        const dropZoneDesktop = document.getElementById('drop-zone-desktop');
+        const dropZoneMobile = document.getElementById('drop-zone-mobile');
+
+        // State Management
+        let file = null;
+        let fileData = null;
+        let fileMimeType = '';
+        let historyStack = [''];
+        let historyIndex = 0;
+
+        // History Management
+        function updateHistory(newText) {
+            if (historyIndex < historyStack.length - 1) {
+                historyStack = historyStack.slice(0, historyIndex + 1);
+            }
+            historyStack.push(newText);
+            historyIndex++;
+            updateHistoryButtons();
+        }
+
+        function updateHistoryButtons() {
+            undoBtn.disabled = historyIndex <= 0;
+            redoBtn.disabled = historyIndex >= historyStack.length - 1;
+        }
+
+        undoBtn.addEventListener('click', () => {
+            if (historyIndex > 0) {
+                historyIndex--;
+                output.value = historyStack[historyIndex];
+                updateHistoryButtons();
+            }
+        });
+
+        redoBtn.addEventListener('click', () => {
+            if (historyIndex < historyStack.length - 1) {
+                historyIndex++;
+                output.value = historyStack[historyIndex];
+                updateHistoryButtons();
+            }
+        });
+
+        // Universal File Processor
+        function processFile(selectedFile) {
+            file = selectedFile;
+            if (!file) return;
+            resetUI();
+            fileInfo.textContent = `File: ${file.name}`;
+            extractBtn.disabled = false;
+            extractBtnMobile.disabled = false;
+            
+            previewContainer.innerHTML = ''; 
+            previewContainerMobile.innerHTML = '';
+
+            if (file.type.startsWith('image/')) {
+                fileMimeType = file.type;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    fileData = e.target.result.split(',')[1];
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    previewContainer.appendChild(img);
+                    
+                    const imgMobile = document.createElement('img');
+                    imgMobile.src = e.target.result;
+                    previewContainerMobile.appendChild(imgMobile);
+                };
+                reader.readAsDataURL(file);
+            } else if (file.type === 'application/pdf') {
+                fileMimeType = 'image/png';
+                file.arrayBuffer().then(arrayBuffer => {
+                     pdfjsLib.getDocument(arrayBuffer).promise.then(pdf => {
+                        pdf.getPage(1).then(page => {
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            
+                            const canvasMobile = document.createElement('canvas');
+                            const contextMobile = canvasMobile.getContext('2d');
+                            canvasMobile.height = viewport.height;
+                            canvasMobile.width = viewport.width;
+
+                            page.render({ canvasContext: context, viewport: viewport }).promise.then(() => {
+                                previewContainer.appendChild(canvas);
+                            });
+                            page.render({ canvasContext: contextMobile, viewport: viewport }).promise.then(() => {
+                                previewContainerMobile.appendChild(canvasMobile);
+                                fileData = canvasMobile.toDataURL('image/png').split(',')[1];
+                            });
+                        });
+                    });
+                });
+            } else {
+                 showError('Unsupported file type.');
+                 extractBtn.disabled = true;
+                 extractBtnMobile.disabled = true;
+            }
+        }
+
+        // Event Listeners
+        fileUpload.addEventListener('change', (e) => processFile(e.target.files[0]));
+        fileUploadMobile.addEventListener('change', (e) => processFile(e.target.files[0]));
+
+        // Drag and Drop Logic
+        [dropZoneDesktop, dropZoneMobile].forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('drag-over');
+            });
+            zone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+            });
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+                if (e.dataTransfer.files.length > 0) {
+                    processFile(e.dataTransfer.files[0]);
+                }
+            });
+        });
+
+
+        async function handleExtract() {
+            if (!fileData) {
+                showError('No file available to process.');
+                return;
+            }
+            setLoadingState(true);
+            try {
+                const text = await callGeminiAPI(fileData, fileMimeType, getOcrPrompt());
+                output.value = text;
+                updateHistory(text);
+                createActionButtons();
+            } catch (error) {
+                console.error('OCR Error:', error);
+                showError('Failed to extract text.');
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        extractBtn.addEventListener('click', handleExtract);
+        extractBtnMobile.addEventListener('click', handleExtract);
+
+        function createActionButtons() {
+            formatActions.innerHTML = '';
+            const buttons = [
+                { id: 'ai-cleanup-btn', text: 'AI Cleanup', handler: handleAiCleanup },
+                { id: 'format-paragraph-btn', text: 'Paragraph', handler: handleParagraphFormat },
+                { id: 'copy-btn', text: 'Copy', handler: handleCopy }
+            ];
+
+            formatActions.className = `grid grid-cols-1 md:grid-cols-3 gap-2 pt-2`;
+
+            buttons.forEach((btnData, index) => {
+                const button = document.createElement('button');
+                button.id = btnData.id;
+                button.textContent = btnData.text;
+                button.className = `btn-secondary btn-mac w-full font-semibold py-2 px-3 rounded-lg shadow-sm transition-all duration-200 text-sm btn-animated`;
+                button.style.animationDelay = `${index * 0.07}s`;
+                button.addEventListener('click', btnData.handler);
+                formatActions.appendChild(button);
+            });
+        }
+        
+        function getSelectedTextInfo() {
+            const start = output.selectionStart;
+            const end = output.selectionEnd;
+            if (start !== end) {
+                return {
+                    text: output.value.substring(start, end),
+                    isSelection: true,
+                    start: start,
+                    end: end
+                };
+            }
+            return { text: output.value, isSelection: false };
+        }
+
+        async function handleAiCleanup() {
+            const selectionInfo = getSelectedTextInfo();
+            if (!selectionInfo.text) return;
+            setFormattingLoadingState(true);
+            try {
+                const cleanupPrompt = getAiCleanupPrompt(selectionInfo.text);
+                const cleanedText = await callGeminiAPI(null, null, cleanupPrompt);
+                
+                if (selectionInfo.isSelection) {
+                    const fullText = output.value;
+                    const newFullText = fullText.substring(0, selectionInfo.start) + cleanedText + fullText.substring(selectionInfo.end);
+                    output.value = newFullText;
+                    updateHistory(newFullText);
+                } else {
+                    output.value = cleanedText;
+                    updateHistory(cleanedText);
+                }
+                showFeedback('AI Cleanup complete!');
+            } catch (error) {
+                showError('Failed to clean up text.');
+            } finally {
+                setFormattingLoadingState(false);
+            }
+        }
+
+        function handleParagraphFormat() {
+            const selectionInfo = getSelectedTextInfo();
+            if (!selectionInfo.text) return;
+            
+            const paragraphs = selectionInfo.text.split(/(\r\n|\n){2,}/);
+            const formattedText = paragraphs.map(p => p.replace(/(\r\n|\n)/g, " ").replace(/\s+/g, ' ').trim()).filter(p => p.length > 0).join('\n\n');
+            
+            if (selectionInfo.isSelection) {
+                const fullText = output.value;
+                const newFullText = fullText.substring(0, selectionInfo.start) + formattedText + fullText.substring(selectionInfo.end);
+                output.value = newFullText;
+                updateHistory(newFullText);
+            } else {
+                output.value = formattedText;
+                updateHistory(formattedText);
+            }
+            showFeedback('Paragraphs have been arranged!');
+        }
+
+        function handleCopy() {
+            const textToCopy = output.value;
+            const textArea = document.createElement('textarea');
+            textArea.value = textToCopy;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showFeedback('Copied to clipboard!');
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showFeedback('Failed to copy!', 'red');
+            }
+            document.body.removeChild(textArea);
+        }
+
+        async function callGeminiAPI(imageData, mimeType, userPrompt) {
+            const parts = [];
+            if (userPrompt) parts.push({ text: userPrompt });
+            if (imageData && mimeType) parts.push({ inlineData: { mimeType: mimeType, data: imageData } });
+            const payload = { contents: [{ parts }] };
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) throw new Error(`API request failed: ${await response.text()}`);
+            const result = await response.json();
+            if (result.candidates?.[0]?.content.parts?.[0]?.text) return result.candidates[0].content.parts[0].text;
+            throw new Error(result.promptFeedback?.blockReason || 'No text was found in the response.');
+        }
+
+        function getOcrPrompt() { return "Transcribe the text from this image exactly as it appears. Do NOT reformat, reorder, or 'correct' the text. Preserve all original line breaks, spacing, and layout meticulously. The output should be a raw, character-for-character transcription of the visual text."; }
+        function getAiCleanupPrompt(text) { return `Please act as a proofreader for the following text. Your task is to remove any artifacts that are not part of the main content. This includes page numbers, headers, footers, random symbols, or clear OCR errors. Return only the clean, core text. Do not add or summarize anything.\n\nHere is the text to clean:\n---\n${text}\n---`; }
+        
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                processingAnimation.classList.remove('hidden');
+            } else {
+                processingAnimation.classList.add('hidden');
+            }
+            extractBtn.disabled = isLoading;
+            extractBtnMobile.disabled = isLoading;
+            if (isLoading) errorMessage.classList.add('hidden');
+        }
+
+        function setFormattingLoadingState(isLoading) {
+            if (isLoading) {
+                processingAnimation.classList.remove('hidden');
+            } else {
+                processingAnimation.classList.add('hidden');
+            }
+            formatActions.querySelectorAll('button').forEach(button => {
+                button.disabled = isLoading;
+                button.style.cursor = isLoading ? 'wait' : 'pointer';
+            });
+        }
+
+        function resetUI() {
+            errorMessage.classList.add('hidden');
+            output.value = '';
+            fileInfo.textContent = '';
+            formatActions.innerHTML = '';
+            previewContainer.innerHTML = '<p class="text-gray-600 text-center text-sm">Your file preview will appear here</p>';
+            previewContainerMobile.innerHTML = '<p class="text-gray-600 text-center text-sm">Your file preview will appear here</p>';
+            showFeedback('');
+            // Reset history
+            historyStack = [''];
+            historyIndex = 0;
+            updateHistoryButtons();
+        }
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        function showFeedback(message, color = 'green') {
+            copyFeedback.textContent = message;
+            copyFeedback.className = `text-sm text-center h-4 text-${color}-600`;
+            if (message) setTimeout(() => { if (copyFeedback.textContent === message) copyFeedback.textContent = ''; }, 3000);
+        }
+    </script>
+</body>
+</html>
